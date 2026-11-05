@@ -1,0 +1,41 @@
+name: Test multiline message
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start fake webhook receiver
+        run: |
+          rm -f /tmp/webhook-multi.json
+          nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 8767 /tmp/webhook-multi.json > /tmp/webhook-multi.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8767/health >/dev/null; then echo "server ready"; exit 0; fi
+            sleep 1
+          done
+          echo "FAIL: server did not start"; cat /tmp/webhook-multi.log; exit 1
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:8767/hook
+          message: |
+            line one
+            line two
+      - name: Assert multiline content is delivered
+        run: |
+          for i in $(seq 1 10); do [ -f /tmp/webhook-multi.json ] && break; sleep 1; done
+          if [ ! -f /tmp/webhook-multi.json ]; then
+            echo "FAIL: no request received"; cat /tmp/webhook-multi.log; exit 1
+          fi
+          cat /tmp/webhook-multi.json; echo
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("/tmp/webhook-multi.json","utf8"));
+            const b = JSON.parse(r.body);
+            console.log("actual: " + JSON.stringify(b.content));
+            if (!/^line one\nline two\n?$/.test(b.content)) {
+              console.log("FAIL: expected two lines");
+              process.exit(1);
+            }
+            console.log("PASS");
+          '

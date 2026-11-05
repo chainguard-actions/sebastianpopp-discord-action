@@ -1,0 +1,39 @@
+name: Test basic message delivery
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start fake webhook receiver
+        run: |
+          rm -f /tmp/webhook-basic.json
+          nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 8765 /tmp/webhook-basic.json > /tmp/webhook-basic.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8765/health >/dev/null; then echo "server ready"; exit 0; fi
+            sleep 1
+          done
+          echo "FAIL: server did not start"; cat /tmp/webhook-basic.log; exit 1
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:8765/api/webhooks/123/abc
+          message: Hello from act
+      - name: Assert webhook received the message
+        run: |
+          for i in $(seq 1 10); do [ -f /tmp/webhook-basic.json ] && break; sleep 1; done
+          if [ ! -f /tmp/webhook-basic.json ]; then
+            echo "FAIL: no request received"; cat /tmp/webhook-basic.log; exit 1
+          fi
+          cat /tmp/webhook-basic.json; echo
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("/tmp/webhook-basic.json","utf8"));
+            const fail = (m) => { console.log("FAIL: " + m); process.exit(1); };
+            if (r.method !== "POST") fail("expected POST, got " + r.method);
+            if (r.url !== "/api/webhooks/123/abc") fail("unexpected path " + r.url);
+            if (!/application\/json/.test(r.headers["content-type"] || "")) fail("bad content-type " + r.headers["content-type"]);
+            const b = JSON.parse(r.body);
+            if (b.content !== "Hello from act") fail("unexpected content " + JSON.stringify(b.content));
+            console.log("PASS");
+          '

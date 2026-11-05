@@ -1,0 +1,41 @@
+name: Test message with special characters
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start fake webhook receiver
+        run: |
+          rm -f /tmp/webhook-special.json
+          nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 8766 /tmp/webhook-special.json > /tmp/webhook-special.log 2>&1 &
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8766/health >/dev/null; then echo "server ready"; exit 0; fi
+            sleep 1
+          done
+          echo "FAIL: server did not start"; cat /tmp/webhook-special.log; exit 1
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:8766/hook
+          message: 'He said "hi" & <b>bye</b> é 🚀 $HOME `x`'
+      - name: Assert content is preserved exactly
+        env:
+          EXPECTED: 'He said "hi" & <b>bye</b> é 🚀 $HOME `x`'
+        run: |
+          for i in $(seq 1 10); do [ -f /tmp/webhook-special.json ] && break; sleep 1; done
+          if [ ! -f /tmp/webhook-special.json ]; then
+            echo "FAIL: no request received"; cat /tmp/webhook-special.log; exit 1
+          fi
+          cat /tmp/webhook-special.json; echo
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("/tmp/webhook-special.json","utf8"));
+            const b = JSON.parse(r.body);
+            console.log("actual: " + b.content);
+            if (b.content !== process.env.EXPECTED) {
+              console.log("FAIL: expected " + process.env.EXPECTED);
+              process.exit(1);
+            }
+            console.log("PASS");
+          '
