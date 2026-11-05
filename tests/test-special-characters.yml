@@ -1,0 +1,36 @@
+name: Test message with special characters
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start local webhook receiver
+        run: |
+          rm -rf /tmp/webhook-special
+          setsid nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 18782 200 /tmp/webhook-special > /tmp/webhook-special.log 2>&1 &
+          for i in $(seq 1 50); do
+            [ -f /tmp/webhook-special/ready ] && break
+            sleep 0.2
+          done
+          if [ ! -f /tmp/webhook-special/ready ]; then
+            echo "FAIL: webhook receiver did not start"; cat /tmp/webhook-special.log; exit 1
+          fi
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:18782/hook
+          message: |-
+            Line 1 with "quotes" & <tags>
+            Line 2 with emoji 🚀 and \backslash
+      - name: Assert content preserved exactly
+        run: |
+          echo "raw body: $(cat /tmp/webhook-special/body)"
+          node -e '
+            const b = JSON.parse(require("fs").readFileSync("/tmp/webhook-special/body","utf8"));
+            const expected = "Line 1 with \"quotes\" & <tags>\nLine 2 with emoji 🚀 and \\backslash";
+            console.log("content:", JSON.stringify(b.content));
+            if (b.content !== expected) { console.log("FAIL: expected", JSON.stringify(expected)); process.exit(1); }
+            console.log("PASS");
+          '

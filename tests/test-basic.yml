@@ -1,0 +1,37 @@
+name: Test basic message delivery
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start local webhook receiver
+        run: |
+          rm -rf /tmp/webhook-basic
+          setsid nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 18781 204 /tmp/webhook-basic > /tmp/webhook-basic.log 2>&1 &
+          for i in $(seq 1 50); do
+            [ -f /tmp/webhook-basic/ready ] && break
+            sleep 0.2
+          done
+          if [ ! -f /tmp/webhook-basic/ready ]; then
+            echo "FAIL: webhook receiver did not start"; cat /tmp/webhook-basic.log; exit 1
+          fi
+          echo "receiver ready"
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:18781/api/webhooks/123/abc
+          message: Hello from act
+      - name: Assert request was received correctly
+        run: |
+          D=/tmp/webhook-basic
+          METHOD="$(cat $D/method)"; URLP="$(cat $D/url)"; CT="$(cat $D/content-type)"; BODY="$(cat $D/body)"
+          echo "method: $METHOD"; echo "url: $URLP"; echo "content-type: $CT"; echo "body: $BODY"
+          [ "$METHOD" = "POST" ] || { echo "FAIL: expected POST"; exit 1; }
+          [ "$URLP" = "/api/webhooks/123/abc" ] || { echo "FAIL: wrong path"; exit 1; }
+          echo "$CT" | grep -qi 'application/json' || { echo "FAIL: wrong content-type"; exit 1; }
+          CONTENT="$(node -e 'console.log(JSON.parse(require("fs").readFileSync("/tmp/webhook-basic/body","utf8")).content)')"
+          echo "content: $CONTENT"
+          [ "$CONTENT" = "Hello from act" ] || { echo "FAIL: wrong content"; exit 1; }
+          echo "PASS"
