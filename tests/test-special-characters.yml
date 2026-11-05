@@ -1,0 +1,46 @@
+name: Test message with special characters and query string
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start local webhook receiver
+        run: |
+          rm -f /tmp/special-req.json /tmp/special-req.json.ready
+          nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 8788 /tmp/special-req.json 204 > /tmp/special-server.log 2>&1 &
+          for i in $(seq 1 50); do
+            [ -f /tmp/special-req.json.ready ] && break
+            sleep 0.2
+          done
+          if [ ! -f /tmp/special-req.json.ready ]; then
+            echo "FAIL: server did not start"; cat /tmp/special-server.log; exit 1
+          fi
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:8788/api/webhooks/456/abc?wait=true
+          message: |-
+            **Build** "passed" & it's <done> ✅
+            second line $HOME
+      - name: Assert request preserved special characters
+        run: |
+          for i in $(seq 1 50); do
+            [ -f /tmp/special-req.json ] && break
+            sleep 0.2
+          done
+          if [ ! -f /tmp/special-req.json ]; then
+            echo "FAIL: no request received"; cat /tmp/special-server.log; exit 1
+          fi
+          cat /tmp/special-req.json; echo
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("/tmp/special-req.json", "utf8"));
+            const fail = (m) => { console.log("FAIL: " + m); process.exit(1); };
+            if (r.method !== "POST") fail("method was " + r.method);
+            if (r.url !== "/api/webhooks/456/abc?wait=true") fail("url was " + r.url);
+            const body = JSON.parse(r.body);
+            const expected = "**Build** \"passed\" & it'"'"'s <done> \u2705\nsecond line $HOME";
+            if (body.content !== expected) fail("content was " + JSON.stringify(body.content) + " expected " + JSON.stringify(expected));
+            console.log("PASS");
+          '

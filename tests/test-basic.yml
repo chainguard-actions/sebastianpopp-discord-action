@@ -1,0 +1,44 @@
+name: Test basic message delivery
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Start local webhook receiver
+        run: |
+          rm -f /tmp/basic-req.json /tmp/basic-req.json.ready
+          nohup node "$GITHUB_WORKSPACE/tests/fixtures/webhook-server.js" 8787 /tmp/basic-req.json 204 > /tmp/basic-server.log 2>&1 &
+          for i in $(seq 1 50); do
+            [ -f /tmp/basic-req.json.ready ] && break
+            sleep 0.2
+          done
+          if [ ! -f /tmp/basic-req.json.ready ]; then
+            echo "FAIL: server did not start"; cat /tmp/basic-server.log; exit 1
+          fi
+      - id: action
+        uses: .
+        with:
+          webhook: http://127.0.0.1:8787/api/webhooks/123/token
+          message: Hello from act
+      - name: Assert request was received correctly
+        run: |
+          for i in $(seq 1 50); do
+            [ -f /tmp/basic-req.json ] && break
+            sleep 0.2
+          done
+          if [ ! -f /tmp/basic-req.json ]; then
+            echo "FAIL: no request received"; cat /tmp/basic-server.log; exit 1
+          fi
+          cat /tmp/basic-req.json; echo
+          node -e '
+            const r = JSON.parse(require("fs").readFileSync("/tmp/basic-req.json", "utf8"));
+            const fail = (m) => { console.log("FAIL: " + m); process.exit(1); };
+            if (r.method !== "POST") fail("method was " + r.method);
+            if (r.url !== "/api/webhooks/123/token") fail("url was " + r.url);
+            if (!r.contentType.includes("application/json")) fail("content-type was " + r.contentType);
+            const body = JSON.parse(r.body);
+            if (body.content !== "Hello from act") fail("content was " + JSON.stringify(body.content));
+            console.log("PASS");
+          '

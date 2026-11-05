@@ -1,14 +1,30 @@
-# sebastianpopp/discord-action
+# discord-action
 
-Send a message to a Discord webhook.
+Send a message to a [Discord](https://discord.com/) webhook. Follow [this guide](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) to create a webhook if you don't have one already.
 
-Hardened by [Chainguard](https://www.chainguard.dev) from the upstream action at [https://github.com/sebastianpopp/discord-action](https://github.com/sebastianpopp/discord-action).
+## Example usage
 
-## Versions
+```
+name: Deploy
+on: push
+jobs:
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    steps:
+    - name: discord
+      uses: sebastianpopp/discord-action@releases/v2
+      with:
+        webhook: ${{ secrets.DISCORD_WEBHOOK }}
+        message: ${{ github.repository }} has been successfullly deployed.
+```
 
-| Version | Tag | Upstream commit | Hardening report |
-|---------|-----|-----------------|------------------|
-| v1.0 | [`v1.0`](https://github.com/chainguard-actions/sebastianpopp-discord-action/tree/v1.0) | [`ba18c5a`](https://github.com/sebastianpopp/discord-action/commit/ba18c5aaa871acf97620c349fd76a187550f12eb) | [`HARDENING.md`](https://github.com/chainguard-actions/sebastianpopp-discord-action/blob/v1.0/HARDENING.md) |
+## Input parameters
+
+Input parameter | Description | Required | Default
+--- | --- | --- | ---
+webhook | Discord webhook URL. Follow [this guide](https://support.discord.com/hc/en-us/articles/228383668-Intro-to-Webhooks) to create a webhook if you don't have one already. Do not add `/github` or any other suffix. | Yes | N/A
+message | Message to be sent | Yes | N/A
 
 ## Privacy
 
